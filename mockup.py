@@ -1,78 +1,89 @@
 
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import requests
 from io import BytesIO
 import os
+import re
 
 st.set_page_config(page_title="Thumbnail Mockup Generator", layout="centered")
 
-st.markdown("### 🎯 Thumbnail Mockup Generator")
+st.markdown("🎯 **Thumbnail Mockup Generator**", unsafe_allow_html=True)
 
 thumb_file = st.file_uploader("Upload Thumbnail (1920x1080)", type=["jpg", "jpeg", "png"])
 channel_url = st.text_input("YouTube Channel or Video Link")
 title = st.text_input("Video Title")
 
-if thumb_file and channel_url and title:
-    from urllib.parse import urlparse
-    import re
+def get_channel_info(link):
+    channel_name = "Channel Name"
+    subscribers = "1M subscribers"
+    match = re.search(r"@([a-zA-Z0-9_]+)", link)
+    if match:
+        name = match.group(1)
+        channel_name = name[0].upper() + name[1:]
+    if "mrbeast" in link.lower():
+        channel_name = "MrBeast"
+        subscribers = "382M subscribers"
+    elif "willibed" in link.lower():
+        channel_name = "Willibed"
+        subscribers = "1.39M subscribers"
+    return channel_name, subscribers
 
-    def extract_channel_username(url):
-        parsed = urlparse(url)
-        return parsed.path.split("/")[-1].replace("@", "")
+def round_corners(im, rad):
+    circle = Image.new('L', (rad * 2, rad * 2), 0)
+    draw = ImageDraw.Draw(circle)
+    draw.ellipse((0, 0, rad * 2, rad * 2), fill=255)
+    alpha = Image.new('L', im.size, 255)
+    w, h = im.size
+    alpha.paste(circle.crop((0, 0, rad, rad)), (0, 0))
+    alpha.paste(circle.crop((0, rad, rad, rad * 2)), (0, h - rad))
+    alpha.paste(circle.crop((rad, 0, rad * 2, rad)), (w - rad, 0))
+    alpha.paste(circle.crop((rad, rad, rad * 2, rad * 2)), (w - rad, h - rad))
+    im.putalpha(alpha)
+    return im
 
-    def get_mock_subs(channel_name):
-        # Dummy values for demo
-        return "1.39M" if "Willibed" in channel_name else "382M"
+def draw_text(draw, text, position, font, fill):
+    draw.text(position, text, font=font, fill=fill)
 
-    def round_corners(img, rad):
-        circle = Image.new("L", (rad * 2, rad * 2), 0)
-        draw = ImageDraw.Draw(circle)
-        draw.ellipse((0, 0, rad * 2, rad * 2), fill=255)
-        alpha = Image.new("L", img.size, 255)
-        w, h = img.size
-        alpha.paste(circle.crop((0, 0, rad, rad)), (0, 0))
-        alpha.paste(circle.crop((0, rad, rad, rad * 2)), (0, h - rad))
-        alpha.paste(circle.crop((rad, 0, rad * 2, rad)), (w - rad, 0))
-        alpha.paste(circle.crop((rad, rad, rad * 2, rad * 2)), (w - rad, h - rad))
-        img.putalpha(alpha)
-        return img
-
+if thumb_file and title and channel_url:
     thumb = Image.open(thumb_file).convert("RGB").resize((1328, 747))
-    thumb = round_corners(thumb, 60)
+    thumb = round_corners(thumb, 36)
 
-    canvas = Image.new("RGB", (1400, 1100), "#000000")
-    canvas.paste(thumb, (36, 40), thumb)
-
-    font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 60)
-    font_channel = ImageFont.truetype("DejaVuSans.ttf", 48)
-    font_subs = ImageFont.truetype("DejaVuSans.ttf", 45)
+    canvas = Image.new("RGB", (1400, 980), "black")
+    canvas.paste(thumb, (36, 36), thumb)
 
     draw = ImageDraw.Draw(canvas)
-    draw.text((66, 835), title, font=font_title, fill="white")
 
-    # Channel section
-    channel_name = extract_channel_username(channel_url)
-    subs = get_mock_subs(channel_name)
-    subs = subs.replace(".00", "") if subs.endswith(".00M") else subs
+    try:
+        font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 62)
+        font_meta = ImageFont.truetype("DejaVuSans.ttf", 44)
+    except:
+        font_title = ImageFont.load_default()
+        font_meta = ImageFont.load_default()
 
-    # Draw dark rounded box
-    box_x, box_y, box_w, box_h = 66, 910, 1268, 100
-    box = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 0))
-    draw_box = ImageDraw.Draw(box)
-    draw_box.rounded_rectangle([(0, 0), (box_w, box_h)], radius=50, fill=(40, 40, 40, 255))
-    canvas.paste(box, (box_x, box_y), box)
+    draw_text(draw, title, (66, 835), font_title, "white")
 
-    # PFP
-    pfp = Image.open("pfp.jpg").resize((87, 87)).convert("RGBA")
-    mask = Image.new("L", (87, 87), 0)
-    draw_mask = ImageDraw.Draw(mask)
-    draw_mask.ellipse((0, 0, 87, 87), fill=255)
-    canvas.paste(pfp, (box_x + 20, box_y + 7), mask)
+    channel_name, subs = get_channel_info(channel_url)
 
-    draw.text((box_x + 120, box_y + 28), channel_name, font=font_channel, fill="white")
-    text_w = draw.textlength(subs + " subscribers", font=font_subs)
-    draw.text((box_x + box_w - text_w - 40, box_y + 30), subs + " subscribers", font=font_subs, fill="lightgray")
+    subs = subs.replace(".00", "") if ".00" in subs else subs
 
-    st.image(canvas)
+    profile_box = Image.new("RGB", (1220, 100), (32, 32, 32))
+    profile_box = ImageOps.expand(profile_box, border=30, fill="black")
+    profile_box = round_corners(profile_box, 60)
+    canvas.paste(profile_box, (66, 900), profile_box)
+
+    try:
+        pfp = Image.open("pfp.jpg").resize((87, 87)).convert("RGBA")
+        mask = Image.new("L", (87, 87), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse((0, 0, 87, 87), fill=255)
+        pfp.putalpha(mask)
+        canvas.paste(pfp, (96, 930), pfp)
+    except:
+        pass
+
+    draw_text(draw, channel_name, (210, 945), font_meta, "white")
+    draw_text(draw, subs, (980, 945), font_meta, "lightgray")
+
+    st.image(canvas, caption="Mockup Output", use_container_width=True)
     st.success("Mockup generated successfully!")

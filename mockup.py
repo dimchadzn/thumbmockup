@@ -1,65 +1,83 @@
+
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import requests
 from io import BytesIO
+import textwrap
 import re
+
+def fetch_channel_data(channel_url):
+    channel_name = "Channel Name"
+    subscriber_count = "1M subscribers"
+    match = re.search(r"youtube\.com/(?:@)?([\w\d_-]+)", channel_url)
+    if match:
+        channel_name = match.group(1).strip()
+    return channel_name, subscriber_count
+
+def round_corners(image, radius):
+    mask = Image.new("L", image.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle([0, 0, image.size[0], image.size[1]], radius=radius, fill=255)
+    rounded = image.copy()
+    rounded.putalpha(mask)
+    return rounded
+
+def create_mockup(thumbnail, channel_name, subscriber_count, title):
+    WIDTH = 1328
+    HEIGHT = 980
+    FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    
+    base = Image.new("RGB", (WIDTH, HEIGHT), "black")
+    draw = ImageDraw.Draw(base)
+
+    thumb = thumbnail.resize((1328, 747)).convert("RGB")
+    thumb = round_corners(thumb, 50)
+    base.paste(thumb, (0, 0), thumb)
+
+    font_title = ImageFont.truetype(FONT_PATH, 60)
+    font_channel = ImageFont.truetype(FONT_PATH, 48)
+    font_subs = ImageFont.truetype(FONT_PATH, 40)
+
+    title_y = 747 + 40
+    draw.text((66, title_y), title, font=font_title, fill="white")
+
+    box_height = 135
+    box_y = HEIGHT - box_height
+    channel_box = Image.new("RGB", (1328, box_height), "#181818")
+    base.paste(channel_box, (0, box_y))
+
+    try:
+        profile_pic_url = f"https://yt3.googleusercontent.com/ytc/{channel_name}=s176-c-k-c0x00ffffff-no-rj"
+        pfp = Image.open(BytesIO(requests.get(profile_pic_url).content)).convert("RGB")
+    except:
+        pfp = Image.new("RGB", (87, 87), color="gray")
+
+    pfp = pfp.resize((87, 87))
+    mask = Image.new("L", (87, 87), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.ellipse((0, 0, 87, 87), fill=255)
+    base.paste(pfp, (66, box_y + 24), mask)
+
+    draw.text((168, box_y + 38), channel_name, font=font_channel, fill="white")
+
+    subs_text_size = draw.textlength(subscriber_count, font=font_subs)
+    subs_x = WIDTH - subs_text_size - 66
+    draw.text((subs_x, box_y + 42), subscriber_count, font=font_subs, fill="#B0B0B0")
+
+    return base
 
 st.set_page_config(page_title="Thumbnail Mockup Generator", layout="centered")
 
-st.markdown("## 🎯 Thumbnail Mockup Generator")
-
-uploaded_file = st.file_uploader("Upload Thumbnail (1920x1080)", type=["jpg", "jpeg", "png"])
+st.title("🎯 Thumbnail Mockup Generator")
+thumb_file = st.file_uploader("Upload Thumbnail (1920x1080)", type=["jpg", "jpeg", "png"])
 channel_url = st.text_input("YouTube Channel or Video Link")
-video_title = st.text_input("Video Title")
+title = st.text_input("Video Title")
 
-if uploaded_file and channel_url and video_title:
-    thumb = Image.open(uploaded_file).convert("RGB").resize((1328, 747))
-    final = Image.new("RGB", (1440, 1144), "black")
-    final.paste(thumb, (56, 57))
-
-    # Get channel username from URL
-    match = re.search(r"youtube\.com\/(?:@|channel\/)([\w-]+)", channel_url)
-    channel_username = match.group(1) if match else "Unknown"
-
-    # Load fonts
-    font_title = ImageFont.truetype("DejaVuSans.ttf", 60)
-    font_channel = ImageFont.truetype("DejaVuSans.ttf", 56)
-    font_subs = ImageFont.truetype("DejaVuSans.ttf", 45)
-
-    draw = ImageDraw.Draw(final)
-    draw.text((66, 835), video_title, font=font_title, fill="white")
-
-    # Draw channel box
-    draw.rounded_rectangle((56, 947, 1384, 1082), radius=50, fill="#181818")
-
-    # Get channel info from YouTube Data API (simulated)
-    try:
-        response = requests.get(f"https://yt-api.p.rapidapi.com/channel/info?handle=@{channel_username}",
-            headers={
-                "X-RapidAPI-Key": "demo",
-                "X-RapidAPI-Host": "yt-api.p.rapidapi.com"
-            },
-            timeout=5
-        )
-        data = response.json()
-        profile_pic_url = data.get("avatar", {}).get("url", "")
-        subs = data.get("stats", {}).get("subscribersText", "1M subscribers")
-        name = data.get("title", channel_username)
-    except:
-        profile_pic_url = "https://yt3.ggpht.com/ytc/AAUvwnhUv_demo=s88-c-k-c0x00ffffff-no-rj"
-        subs = "1.39M subscribers"
-        name = channel_username
-
-    # Channel image
-    try:
-        pf_img = Image.open(BytesIO(requests.get(profile_pic_url).content)).convert("RGB").resize((87, 87))
-    except:
-        pf_img = Image.new("RGB", (87, 87), "gray")
-    final.paste(pf_img, (93, 971))
-
-    # Channel text
-    draw.text((208, 980), name, font=font_channel, fill="white")
-    draw.text((927, 988), subs, font=font_subs, fill="#B0B0B0")
-
-    st.image(final, caption="Mockup Output", use_column_width=True)
-    st.success("Mockup generated successfully!")
+if thumb_file and channel_url and title:
+    image = Image.open(thumb_file).convert("RGB")
+    channel_name, sub_count = fetch_channel_data(channel_url)
+    result = create_mockup(image, channel_name, sub_count, title)
+    st.image(result, caption="Mockup Output", use_container_width=True)
+    buffered = BytesIO()
+    result.save(buffered, format="PNG")
+    st.download_button("Download Mockup", buffered.getvalue(), "thumbnail_mockup.png", "image/png")
